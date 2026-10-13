@@ -1,0 +1,9 @@
+# Created by setup.sh / download_models.sh
+venv/
+models/
+
+# Per-device magnetometer calibration (python magnetometer.py --calibrate)
+mag_cal.json
+
+__pycache__/
+*.pyc
