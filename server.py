@@ -16,6 +16,7 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import argparse
 import socket
+import sys
 import threading
 
 import cv2 as cv
@@ -42,8 +43,7 @@ def serve_client(conn, addr, args):
                          "faces": detector.faces is not None,
                          "delegate": getattr(detector, "delegate", None),
                          "status": detector.status})
-        print(f"[{name}] connected — {getattr(detector, 'delegate', 'no')} delegate, "
-              f"hands={detector.hands is not None} faces={detector.faces is not None}")
+        print(f"[{name}] connected — {getattr(detector, 'delegate', None) or 'no detectors'}")
         for s in detector.status:
             print(f"[{name}] {s}")
 
@@ -70,6 +70,7 @@ def main():
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--cpu", action="store_true", help="don't try the GPU delegate")
     args = p.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)     # show logs promptly under systemd / in files
     os.chdir(os.path.dirname(os.path.abspath(__file__)))    # model paths are relative
 
     for path in (config.HAND_MODEL_PATH, config.FACE_MODEL_PATH):

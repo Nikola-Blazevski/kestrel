@@ -97,8 +97,7 @@ class RemoteDetector:
         if not reply.get("ok"):
             raise ConnectionError(reply.get("error", "server refused"))
         self.error = None
-        print(f"Detection server connected: {reply.get('delegate')} delegate, "
-              f"hands={reply.get('hands')} faces={reply.get('faces')}")
+        print(f"Detection server connected: {reply.get('delegate') or 'no detectors'}")
         for s in reply.get("status", []):
             print(f"Detection server: {s}")
 

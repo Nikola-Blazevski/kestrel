@@ -40,7 +40,7 @@ You need 64-bit Raspberry Pi OS. MediaPipe has no 32-bit ARM builds.
 
 ```bash
 chmod +x setup.sh download_models.sh
-./setup.sh
+./setup.sh                # same as ./setup.sh client
 source venv/bin/activate
 ```
 
@@ -83,23 +83,24 @@ Window keys: **q/Esc** quit, **h** toggles hands, **f** toggles faces, **m** tog
 
 Hand and face detection can run on another computer instead of the Pi. The Pi still captures frames, reads the magnetometer and draws the overlay. It sends each frame to the server as a JPEG, and the server sends back hand landmarks and face boxes.
 
-On the GPU machine (Linux, x86-64), clone this repo, then run:
+On the GPU machine (Arch Linux; Debian/Ubuntu also work), clone this repo, then run:
 
 ```bash
-python -m venv venv && source venv/bin/activate
-pip install mediapipe opencv-python numpy
-./download_models.sh
+./setup.sh server
+source venv/bin/activate
 python server.py                 # listens on 0.0.0.0:8765
 ```
 
-On the Pi:
+`setup.sh server` installs the system packages it needs with pacman (or apt), creates a venv from `requirements-server.txt`, and downloads the models. It then runs a short detection test and reports which models use the GPU and how fast they run.
+
+On the Pi, run `./setup.sh` (see [Setup](#setup)), then:
 
 ```bash
 python main.py --source picam --server 192.168.1.50              # default port 8765
 python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --detect-width 640
 ```
 
-- The server tries MediaPipe's GPU delegate first. This uses OpenGL ES/EGL, not CUDA, so the machine needs working GPU drivers. If the delegate can't start, the server logs why and falls back to CPU. A desktop CPU is still much faster than a Pi. Pass `--cpu` to skip the GPU attempt.
+- The server tries MediaPipe's GPU delegate for each model separately. This uses WebGPU/Vulkan or OpenGL ES, not CUDA, so the machine needs working Vulkan or GL drivers. Each model runs one test inference at startup. If that fails, the model falls back to CPU and the server logs why. On an RTX 4060 laptop, hand landmarks run on the GPU (about 5 ms vs 17 ms on CPU). The face detector fails on the GPU and runs on CPU instead, which takes under 2 ms. Pass `--cpu` to skip the GPU attempt.
 - Networking never blocks the camera loop. Frames that arrive while a request is in flight are dropped, so overlays may lag the video by one round trip.
 - In this mode, `det` in the HUD shows the full round-trip time, not just the GPU time.
 - If the server goes away, the HUD shows `server offline`, the boxes disappear after a second, and the Pi keeps reconnecting in the background.

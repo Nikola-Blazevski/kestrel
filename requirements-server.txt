@@ -1,0 +1,4 @@
+# For server.py on the GPU machine. setup.sh server installs these.
+mediapipe>=0.10.14
+opencv-contrib-python
+numpy

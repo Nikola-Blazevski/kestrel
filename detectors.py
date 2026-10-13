@@ -53,24 +53,38 @@ class Detector:
             self.status.append("mediapipe not installed — detection off")
             return
         self._mp = mp
-        self.delegate = "GPU" if gpu else "CPU"
+        delegates = {}
 
-        def create(task, options, model, **kw):
-            # Fall back to CPU if the GPU delegate can't start (no EGL/driver, etc.)
-            if self.delegate == "GPU":
+        def create(name, task, options, model, **kw):
+            # Try the GPU per model and fall back to CPU. Some models load on the
+            # GPU but fail on the first inference, so run one before trusting it.
+            if gpu:
+                t = None
                 try:
-                    return task.create_from_options(options(base_options=mpp.BaseOptions(
+                    t = task.create_from_options(options(base_options=mpp.BaseOptions(
                         model_asset_path=model, delegate=mpp.BaseOptions.Delegate.GPU), **kw))
+                    blank = mp.Image(image_format=mp.ImageFormat.SRGB,
+                                     data=np.zeros((240, 320, 3), np.uint8))
+                    t.detect_for_video(blank, 0)
+                    delegates[name] = "GPU"
+                    return t
                 except Exception as e:
-                    self.status.append(f"GPU delegate failed ({e}) — using CPU")
-                    self.delegate = "CPU"
+                    reason = next((s.strip("└ ") for s in str(e).splitlines() if "Failed" in s),
+                                  str(e).splitlines()[0] if str(e) else type(e).__name__)
+                    self.status.append(f"{name}: GPU delegate failed ({reason}) — using CPU")
+                    if t is not None:
+                        try:
+                            t.close()       # re-raises the failed graph's error
+                        except Exception:
+                            pass
+            delegates[name] = "CPU"
             return task.create_from_options(options(base_options=mpp.BaseOptions(
                 model_asset_path=model, delegate=mpp.BaseOptions.Delegate.CPU), **kw))
 
         if hand_model:
             if os.path.exists(hand_model):
                 self.hands = create(
-                    vision.HandLandmarker, vision.HandLandmarkerOptions, hand_model,
+                    "hands", vision.HandLandmarker, vision.HandLandmarkerOptions, hand_model,
                     num_hands=num_hands,
                     min_hand_detection_confidence=0.5,
                     min_hand_presence_confidence=0.5,
@@ -82,11 +96,13 @@ class Detector:
         if face_model:
             if os.path.exists(face_model):
                 self.faces = create(
-                    vision.FaceDetector, vision.FaceDetectorOptions, face_model,
+                    "faces", vision.FaceDetector, vision.FaceDetectorOptions, face_model,
                     min_detection_confidence=0.5,
                     running_mode=vision.RunningMode.VIDEO)
             else:
                 self.status.append(f"{face_model} missing — run download_models.sh")
+        # e.g. "hands GPU, faces CPU"
+        self.delegate = ", ".join(f"{k} {v}" for k, v in delegates.items()) or None
 
     @property
     def enabled(self):
