@@ -1,7 +1,8 @@
 """
-MediaPipe hand landmarks + face detection, CPU only (the Pi 4 has no usable
-GPU delegate). Face *identity* tracking from the desktop version is removed —
-dlib/face_recognition is far too slow on a Pi.
+MediaPipe hand landmarks + face detection. On the Pi this runs on the CPU (the
+Pi 4 has no usable GPU delegate); server.py uses the GPU delegate when it can.
+Face *identity* tracking from the desktop version is removed — dlib/face_recognition
+is far too slow on a Pi.
 
 Results are returned in normalised [0, 1] coordinates so they can be drawn on
 the full-size frame even though detection ran on a downscaled copy.
@@ -36,7 +37,7 @@ class Detections:
 
 
 class Detector:
-    def __init__(self, hand_model=None, face_model=None, num_hands=2):
+    def __init__(self, hand_model=None, face_model=None, num_hands=2, gpu=False):
         self.hands = None
         self.faces = None
         self.status = []
@@ -52,28 +53,38 @@ class Detector:
             self.status.append("mediapipe not installed — detection off")
             return
         self._mp = mp
-        cpu = mpp.BaseOptions.Delegate.CPU
+        self.delegate = "GPU" if gpu else "CPU"
+
+        def create(task, options, model, **kw):
+            # Fall back to CPU if the GPU delegate can't start (no EGL/driver, etc.)
+            if self.delegate == "GPU":
+                try:
+                    return task.create_from_options(options(base_options=mpp.BaseOptions(
+                        model_asset_path=model, delegate=mpp.BaseOptions.Delegate.GPU), **kw))
+                except Exception as e:
+                    self.status.append(f"GPU delegate failed ({e}) — using CPU")
+                    self.delegate = "CPU"
+            return task.create_from_options(options(base_options=mpp.BaseOptions(
+                model_asset_path=model, delegate=mpp.BaseOptions.Delegate.CPU), **kw))
 
         if hand_model:
             if os.path.exists(hand_model):
-                self.hands = vision.HandLandmarker.create_from_options(
-                    vision.HandLandmarkerOptions(
-                        base_options=mpp.BaseOptions(model_asset_path=hand_model, delegate=cpu),
-                        num_hands=num_hands,
-                        min_hand_detection_confidence=0.5,
-                        min_hand_presence_confidence=0.5,
-                        min_tracking_confidence=0.5,
-                        running_mode=vision.RunningMode.VIDEO))
+                self.hands = create(
+                    vision.HandLandmarker, vision.HandLandmarkerOptions, hand_model,
+                    num_hands=num_hands,
+                    min_hand_detection_confidence=0.5,
+                    min_hand_presence_confidence=0.5,
+                    min_tracking_confidence=0.5,
+                    running_mode=vision.RunningMode.VIDEO)
             else:
                 self.status.append(f"{hand_model} missing — run download_models.sh")
 
         if face_model:
             if os.path.exists(face_model):
-                self.faces = vision.FaceDetector.create_from_options(
-                    vision.FaceDetectorOptions(
-                        base_options=mpp.BaseOptions(model_asset_path=face_model, delegate=cpu),
-                        min_detection_confidence=0.5,
-                        running_mode=vision.RunningMode.VIDEO))
+                self.faces = create(
+                    vision.FaceDetector, vision.FaceDetectorOptions, face_model,
+                    min_detection_confidence=0.5,
+                    running_mode=vision.RunningMode.VIDEO)
             else:
                 self.status.append(f"{face_model} missing — run download_models.sh")
 

@@ -79,6 +79,33 @@ Window keys: **q/Esc** quit, **h** toggles hands, **f** toggles faces, **m** tog
 
 `http://<pi-ip>:8000/data.json` returns the latest readings as JSON, if you want to log them from another machine.
 
+## Offload detection to a GPU machine
+
+Hand and face detection can run on another computer instead of the Pi. The Pi still captures frames, reads the magnetometer and draws the overlay. It sends each frame to the server as a JPEG, and the server sends back hand landmarks and face boxes.
+
+On the GPU machine (Linux, x86-64), clone this repo, then run:
+
+```bash
+python -m venv venv && source venv/bin/activate
+pip install mediapipe opencv-python numpy
+./download_models.sh
+python server.py                 # listens on 0.0.0.0:8765
+```
+
+On the Pi:
+
+```bash
+python main.py --source picam --server 192.168.1.50              # default port 8765
+python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --detect-width 640
+```
+
+- The server tries MediaPipe's GPU delegate first. This uses OpenGL ES/EGL, not CUDA, so the machine needs working GPU drivers. If the delegate can't start, the server logs why and falls back to CPU. A desktop CPU is still much faster than a Pi. Pass `--cpu` to skip the GPU attempt.
+- Networking never blocks the camera loop. Frames that arrive while a request is in flight are dropped, so overlays may lag the video by one round trip.
+- In this mode, `det` in the HUD shows the full round-trip time, not just the GPU time.
+- If the server goes away, the HUD shows `server offline`, the boxes disappear after a second, and the Pi keeps reconnecting in the background.
+- Because the Pi no longer does detection, you can use `--detect-every 1` and a larger `--detect-width`. The limits then come from your network bandwidth and the Pi's JPEG encoding.
+- The connection is **unauthenticated and unencrypted**, so only run it on a network you trust.
+
 ### Useful flags
 
 | Flag | Default | Notes |
@@ -87,6 +114,7 @@ Window keys: **q/Esc** quit, **h** toggles hands, **f** toggles faces, **m** tog
 | `--detect-width` | 320 | Lower is faster but misses small or distant hands |
 | `--detect-every` | 2 | Run detection every N frames |
 | `--num-hands` | 2 | |
+| `--server HOST[:PORT]` | off | Run detection on `server.py` elsewhere (default port 8765) |
 | `--declination` | 0 | East positive. Look yours up at NOAA's magnetic field calculator |
 | `--mag-flip` | off | Use if the heading turns the wrong way (board upside down) |
 | `--rotate 90/180/270`, `--flip` | | Camera orientation |

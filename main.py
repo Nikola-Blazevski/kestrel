@@ -10,6 +10,7 @@ Examples:
     python main.py --headless --stream   # no window, browser only (SSH / no desktop)
     python main.py --no-hands --no-faces # magnetometer overlay only (lowest CPU)
     python main.py --mag-sim             # test overlay without the sensor wired
+    python main.py --server 192.168.1.50 # run detection on a GPU machine (server.py)
 
 Keys (window mode): q / Esc quit, h toggle hands, f toggle faces, m toggle mag panel.
 """
@@ -44,6 +45,8 @@ def parse_args():
     g.add_argument("--detect-width", type=int, default=config.DETECT_WIDTH)
     g.add_argument("--detect-every", type=int, default=config.DETECT_EVERY)
     g.add_argument("--num-hands", type=int, default=config.NUM_HANDS)
+    g.add_argument("--server", metavar="HOST[:PORT]",
+                   help="send frames to server.py on a GPU machine instead of detecting locally")
 
     g = p.add_argument_group("magnetometer")
     g.add_argument("--no-mag", action="store_true")
@@ -93,10 +96,15 @@ def main():
             print(f"Magnetometer: not found ({err})")
 
     # --- Detection ---
-    detector = Detector(
-        hand_model=None if args.no_hands else config.HAND_MODEL_PATH,
-        face_model=None if args.no_faces else config.FACE_MODEL_PATH,
-        num_hands=args.num_hands)
+    if args.server:
+        from remote import RemoteDetector
+        detector = RemoteDetector(args.server, hands=not args.no_hands,
+                                  faces=not args.no_faces, num_hands=args.num_hands)
+    else:
+        detector = Detector(
+            hand_model=None if args.no_hands else config.HAND_MODEL_PATH,
+            face_model=None if args.no_faces else config.FACE_MODEL_PATH,
+            num_hands=args.num_hands)
     for s in detector.status:
         print(f"Detection: {s}")
     want_hands, want_faces = detector.hands is not None, detector.faces is not None
@@ -176,6 +184,8 @@ def main():
             if now - temp_t > 2.0:
                 cpu_temp, temp_t = read_cpu_temp(), now
             notes = [] if detector.enabled else ["detection off"]
+            if getattr(detector, "error", None):
+                notes.append(detector.error)
             draw_hud(frame, fps, dets.ms, len(dets.hands), len(dets.faces), cpu_temp, notes)
 
             if hub:
