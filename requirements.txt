@@ -1,0 +1,5 @@
+# setup.sh installs these and adds numpy/opencv pins that match your OS.
+mediapipe>=0.10.14
+opencv-contrib-python
+numpy
+smbus2

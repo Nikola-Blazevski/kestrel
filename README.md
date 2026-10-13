@@ -1,0 +1,140 @@
+# doc-cam-pi
+
+A stripped-down version of [doc-cam](https://github.com/Nikola-Blazevski/doc-cam) for the Raspberry Pi 4. It keeps hand and finger tracking and face boxes, and adds a live overlay of the GY-271 magnetometer on the video feed.
+
+## Changes from the desktop version
+
+| Removed | Why |
+|---|---|
+| Face identity / UUIDs (dlib + face_recognition) | Takes minutes to build on a Pi and runs at about 1 fps |
+| Face snapshots, `known_faces.pkl`, stats, dashboard UI | Only existed to serve face identity |
+| Pose landmarker | Too heavy alongside hands on a Pi 4 CPU |
+| RGB skin / IR processing and the side-by-side "processed" view | Halves the work per frame |
+| CUDA / GPU paths | The Pi 4 has no CUDA, and MediaPipe's GPU delegate isn't usable there |
+
+| Added | |
+|---|---|
+| GY-271 driver | Auto-detects HMC5883L or QMC5883L |
+| Overlay | Compass rose plus heading, X/Y/Z, field strength, dip angle and chip temperature |
+| Calibration | `python magnetometer.py --calibrate` |
+| Pi camera support | CSI camera via picamera2 (USB webcams still work) |
+| MJPEG web stream | Run headless over SSH and watch in a browser |
+| Faster detection | Runs on a downscaled frame every N frames; capture thread always delivers the newest frame |
+| CPU temperature in the HUD | The Pi 4 throttles at 80 °C |
+
+## Wiring the GY-271
+
+| GY-271 | Pi 4 pin |
+|---|---|
+| VCC | Pin 1 (3.3 V) — **not 5 V** |
+| GND | Pin 6 |
+| SCL | Pin 5 (GPIO3) |
+| SDA | Pin 3 (GPIO2) |
+| DRDY | not connected |
+
+Mount the sensor flat, with its **X arrow pointing the same way as the camera**. The heading shown is the direction the X arrow points. Keep the sensor a few cm from the Pi, the camera ribbon, and any speakers or motors.
+
+## Setup
+
+You need 64-bit Raspberry Pi OS. MediaPipe has no 32-bit ARM builds.
+
+```bash
+chmod +x setup.sh download_models.sh
+./setup.sh
+source venv/bin/activate
+```
+
+The setup script does the following:
+- installs `picamera2` and `i2c-tools`
+- enables I2C
+- creates a venv
+- installs MediaPipe and OpenCV
+- downloads the two models
+- runs a quick import check and an `i2cdetect` scan
+
+The GY-271 should appear at **1e** (HMC5883L) or **0d** (QMC5883L).
+
+## Calibrate the magnetometer (once)
+
+```bash
+python magnetometer.py --calibrate
+```
+
+Over 30 seconds, slowly rotate the sensor through every orientation. This writes `mag_cal.json`. Without it, the heading can be off by tens of degrees, and the overlay shows `(uncal)`. Calibrate with the sensor mounted in its final position, because nearby metal moves with it.
+
+To print raw readings in the terminal, run `python magnetometer.py`.
+
+## Run
+
+```bash
+python main.py --source picam              # Pi camera module
+python main.py --source 0                  # USB webcam
+python main.py --headless --stream         # no desktop: open http://<pi-ip>:8000
+python main.py --no-hands --no-faces       # magnetometer overlay only, lowest CPU
+python main.py --mag-sim                   # test the overlay without the sensor
+python main.py --declination 15            # show true heading instead of magnetic
+```
+
+Window keys: **q/Esc** quit, **h** toggles hands, **f** toggles faces, **m** toggles the magnetometer panel.
+
+`http://<pi-ip>:8000/data.json` returns the latest readings as JSON, if you want to log them from another machine.
+
+### Useful flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--width/--height/--fps` | 640×480 @ 30 | |
+| `--detect-width` | 320 | Lower is faster but misses small or distant hands |
+| `--detect-every` | 2 | Run detection every N frames |
+| `--num-hands` | 2 | |
+| `--declination` | 0 | East positive. Look yours up at NOAA's magnetic field calculator |
+| `--mag-flip` | off | Use if the heading turns the wrong way (board upside down) |
+| `--rotate 90/180/270`, `--flip` | | Camera orientation |
+| `--i2c-bus` | 1 | |
+
+## Reading the overlay
+
+- **HDG**: heading of the sensor's X axis. `M` means magnetic; `T` means true (when a declination is set).
+- **X / Y / Z**: field components in µT, after calibration and smoothing.
+- **|B|**: total field strength. Earth's field is about 25–65 µT. The value turns amber outside that range, which usually means steel or a magnet is nearby.
+- **Dip**: inclination angle. Only meaningful when the board is level.
+- **Chip T**: QMC5883L only. Its offset isn't calibrated, so treat it as a relative reading.
+- The compass card rotates. The green marker at the top is "forward", and the red needle points north.
+- Heading is only accurate when the sensor is level. There is no tilt compensation without an accelerometer.
+
+## Performance notes (Pi 4)
+
+- Hand landmarks are the expensive part. If FPS is low, try `--detect-every 3`, `--num-hands 1`, `--no-faces`, or `--detect-width 256`.
+- Fit a heatsink or fan. Sustained MediaPipe load will push a bare Pi 4 into throttling, and the HUD turns red at 80 °C.
+- Use `--headless --stream` when you can. Drawing a desktop window over VNC costs noticeable CPU.
+
+## Troubleshooting
+
+- **`MAG: no HMC5883L ... on the bus`**: check the wiring, then run `i2cdetect -y 1`. If nothing shows, I2C is disabled or SDA and SCL are swapped.
+- **Permission denied on `/dev/i2c-1`**: log out and back in (or reboot) after setup, so the `i2c` group membership applies.
+- **`numpy.dtype size changed` when using `--source picam`**: the venv's numpy doesn't match the system one. Run `venv/bin/pip install "numpy<2" "opencv-contrib-python<4.12"` on Bookworm.
+- **Board shows a different address (e.g. 0x2C)**: some newer GY-271 boards use a QMC5883P, which this driver doesn't support yet.
+
+## Run on boot (optional)
+
+```ini
+# /etc/systemd/system/doc-cam-pi.service
+[Unit]
+Description=doc-cam-pi
+After=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/doc-cam-pi
+ExecStart=/home/pi/doc-cam-pi/venv/bin/python main.py --source picam --headless --stream
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start it:
+
+```bash
+sudo systemctl enable --now doc-cam-pi
+```
