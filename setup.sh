@@ -134,6 +134,11 @@ setup_client() {
     PINS=("numpy<2" "opencv-contrib-python<4.12")
   fi
   venv/bin/pip install -r requirements.txt "${PINS[@]}"
+  # Separate install so a missing MediaPipe wheel (wrong OS/Python) can't block OpenCV.
+  # Only local detection needs it; --server works without it.
+  if ! venv/bin/pip install "mediapipe>=0.10.14" "${PINS[@]}"; then
+    echo "   WARNING: MediaPipe failed to install. Local detection is off; use --server <gpu-machine>."
+  fi
 
   echo "== Models =="
   ./download_models.sh

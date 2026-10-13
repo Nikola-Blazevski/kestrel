@@ -1,5 +1,5 @@
 # setup.sh installs these and adds numpy/opencv pins that match your OS.
-mediapipe>=0.10.14
+# MediaPipe is installed separately (it's optional on the Pi when using --server).
 opencv-contrib-python
 numpy
 smbus2
