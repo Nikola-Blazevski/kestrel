@@ -8,7 +8,7 @@ import cv2 as cv
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>doc-cam-pi</title>
+<title>kestrel-cam</title>
 <style>body{margin:0;background:#111;color:#ddd;font:14px monospace;display:flex;
 flex-direction:column;align-items:center}img{max-width:100%;height:auto}
 #d{padding:8px}</style></head><body>

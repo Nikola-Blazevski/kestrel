@@ -128,7 +128,7 @@ def main():
         hub = StreamHub(config.JPEG_QUALITY)
         start_server(hub, args.port)
         print(f"Streaming on http://0.0.0.0:{args.port}/  (use the Pi's IP address)")
-    title = "doc-cam-pi"
+    title = "kestrel-cam"
     if show_window:
         cv.namedWindow(title, cv.WINDOW_NORMAL)
 
