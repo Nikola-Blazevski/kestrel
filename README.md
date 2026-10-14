@@ -14,7 +14,7 @@ A stripped-down version of [doc-cam](https://github.com/Nikola-Blazevski/doc-cam
 
 | Added | |
 |---|---|
-| GY-271 driver | Auto-detects HMC5883L or QMC5883L |
+| GY-271 driver | Auto-detects HMC5883L, QMC5883L or QMC5883P |
 | Overlay | Compass rose plus heading, X/Y/Z, field strength, dip angle and chip temperature |
 | Calibration | `python magnetometer.py --calibrate` |
 | Pi camera support | CSI camera via picamera2 (USB webcams still work) |
@@ -52,7 +52,7 @@ The setup script does the following:
 - downloads the person detection model
 - runs a quick import check and an `i2cdetect` scan
 
-The GY-271 should appear at **1e** (HMC5883L) or **0d** (QMC5883L).
+The GY-271 should appear at **1e** (HMC5883L), **0d** (QMC5883L) or **2c** (QMC5883P).
 
 ## Calibrate the magnetometer (once)
 
@@ -146,12 +146,11 @@ python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --dete
 
 ## Troubleshooting
 
-- **`MAG: no HMC5883L ... on the bus`**: check the wiring, then run `i2cdetect -y 1`. If nothing shows, I2C is disabled or SDA and SCL are swapped.
+- **`MAG: no HMC5883L ... on the bus`**: check the wiring, then run `sudo i2cdetect -y 1`. If nothing shows, I2C is disabled or SDA and SCL are swapped.
 - **Permission denied on `/dev/i2c-1`**: log out and back in (or reboot) after setup, so the `i2c` group membership applies.
 - **`FATAL ERROR: This binary was compiled with aes enabled` / `Illegal instruction`**: MediaPipe 1.x needs the ARM AES instructions, and the Pi 4's CPU doesn't have them. `main.py` now checks for this and turns local detection off instead of crashing. Run detection on a GPU machine with `--server` instead.
 - **`No module named 'cv2'`**: setup didn't finish, so there is no `venv/`. Run `./setup.sh` again. `main.py` and `server.py` switch to `venv/` on their own, so you don't need to activate it first.
 - **`numpy.dtype size changed` when using `--source picam`**: the venv's numpy doesn't match the system one. Run `venv/bin/pip install "numpy<2" "opencv-contrib-python<4.12"` on Bookworm.
-- **Board shows a different address (e.g. 0x2C)**: some newer GY-271 boards use a QMC5883P, which this driver doesn't support yet.
 
 ## Run on boot (optional)
 

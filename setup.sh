@@ -217,7 +217,7 @@ d = Detector(config.PERSON_MODEL_PATH)
 print("  OK    local detection" if d.enabled else f"  NOTE  {'; '.join(d.status)}")
 EOF
   echo
-  echo "I2C scan (GY-271 shows up as 1e = HMC5883L or 0d = QMC5883L):"
+  echo "I2C scan (GY-271 shows up as 1e = HMC5883L, 0d = QMC5883L or 2c = QMC5883P):"
   sudo i2cdetect -y 1 || true
 
   cat <<'EOF'

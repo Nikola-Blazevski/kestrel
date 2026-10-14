@@ -2,10 +2,11 @@
 """
 GY-271 magnetometer support.
 
-GY-271 boards ship with one of two chips:
+GY-271 boards ship with one of three chips:
   * HMC5883L  (Honeywell)  at I2C address 0x1E
   * QMC5883L  (QST clone)  at I2C address 0x0D
-Both are auto-detected. Run `i2cdetect -y 1` to see which one you have.
+  * QMC5883P  (newer QST)  at I2C address 0x2C
+All are auto-detected. Run `i2cdetect -y 1` to see which one you have.
 
 Standalone use:
     python magnetometer.py              # print live readings
@@ -111,6 +112,48 @@ class QMC5883L:
         return (x, y, z), (x * s, y * s, z * s), temp, overflow
 
 
+class QMC5883P:
+    """Newer QST chip on recent GY-271 boards. Different registers from the
+    QMC5883L, and no temperature sensor."""
+    NAME = "QMC5883P"
+    ADDRESS = 0x2C
+    UT_PER_LSB = 100.0 / 3750.0     # 8 gauss range -> 3750 LSB/gauss
+
+    def __init__(self, bus):
+        self.bus = bus
+        self.init()
+
+    @classmethod
+    def probe(cls, bus):
+        try:
+            return bus.read_byte_data(cls.ADDRESS, 0x00) == 0x80      # chip ID
+        except OSError:
+            return False
+
+    def init(self):
+        a = self.ADDRESS
+        # Configure from suspend mode. No soft reset: the chip drops writes for a
+        # while after one, which silently leaves it on the default 30 G range.
+        self.bus.write_byte_data(a, 0x0A, 0x00)  # suspend
+        time.sleep(0.01)
+        self.bus.write_byte_data(a, 0x0B, 0x08)  # set/reset on, 8 G range
+        if self.bus.read_byte_data(a, 0x0B) != 0x08:
+            raise OSError("range setting didn't stick")
+        self.bus.write_byte_data(a, 0x0A, 0xC5)  # OSR 8 + 8, 50 Hz, normal mode
+        time.sleep(0.03)
+        self.read()                               # clears a stale overflow flag from before init
+
+    def read(self):
+        status = self.bus.read_byte_data(self.ADDRESS, 0x09)
+        d = self.bus.read_i2c_block_data(self.ADDRESS, 0x01, 6)
+        x = _s16(d[1] << 8 | d[0])
+        y = _s16(d[3] << 8 | d[2])
+        z = _s16(d[5] << 8 | d[4])
+        overflow = bool(status & 0x02)
+        s = self.UT_PER_LSB
+        return (x, y, z), (x * s, y * s, z * s), None, overflow
+
+
 class SimulatedMag:
     """Fake sensor that slowly rotates, for testing the overlay without hardware."""
     NAME = "SIMULATED"
@@ -127,7 +170,7 @@ class SimulatedMag:
         return (0, 0, 0), (x, y, z), 21.0 + math.sin(t / 10), False
 
 
-DRIVERS = [HMC5883L, QMC5883L]
+DRIVERS = [HMC5883L, QMC5883L, QMC5883P]
 
 
 def detect_sensor(bus_num=config.I2C_BUS, bus=None):
@@ -147,7 +190,7 @@ def detect_sensor(bus_num=config.I2C_BUS, bus=None):
                 return drv(bus), None
             except OSError as e:
                 return None, f"{drv.NAME} found but init failed: {e}"
-    return None, "no HMC5883L (0x1E) or QMC5883L (0x0D) on the bus"
+    return None, "no HMC5883L (0x1E), QMC5883L (0x0D) or QMC5883P (0x2C) on the bus"
 
 
 # =====================================================================
