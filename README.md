@@ -96,7 +96,7 @@ python server.py                 # listens on 0.0.0.0:8765
 To start the server on boot, run `./setup.sh service`. This installs `server.py` as a systemd user service and turns on lingering, so it starts at boot without anyone logging in. Useful commands:
 
 ```bash
-journalctl --user -u kestrel-server -f          # logs
+journalctl --user-unit kestrel-server -f        # logs
 systemctl --user restart kestrel-server         # after pulling new code
 systemctl --user disable --now kestrel-server   # stop starting it on boot
 ```
@@ -156,24 +156,20 @@ python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --dete
 
 ## Run on boot (optional)
 
-```ini
-# /etc/systemd/system/doc-cam-pi.service
-[Unit]
-Description=doc-cam-pi
-After=network-online.target
-
-[Service]
-User=pi
-WorkingDirectory=/home/pi/doc-cam-pi
-ExecStart=/home/pi/doc-cam-pi/venv/bin/python main.py --source picam --headless --stream
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then enable and start it:
+On the Pi:
 
 ```bash
-sudo systemctl enable --now doc-cam-pi
+./setup.sh service client --server 192.168.1.50      # add any other main.py flags at the end
 ```
+
+This installs `main.py --source picam --headless --stream` plus your flags as a systemd user service (`kestrel-client`). It also turns on lingering, so the service starts at boot without anyone logging in. If the server isn't up yet when the Pi boots, the app keeps retrying until it is.
+
+```bash
+journalctl --user-unit kestrel-client -f        # logs
+systemctl --user restart kestrel-client         # after pulling new code
+systemctl --user disable --now kestrel-client   # stop starting it on boot
+```
+
+To change the flags, run `./setup.sh service client ...` again with the new ones.
+
+To start the GPU server on boot, see [Offload detection to a GPU machine](#offload-detection-to-a-gpu-machine).

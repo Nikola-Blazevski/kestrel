@@ -5,13 +5,15 @@
 #   ./setup.sh client     # Raspberry Pi 4, 64-bit Raspberry Pi OS (Bookworm or newer)
 #   ./setup.sh server     # GPU detection server (Arch Linux; Debian/Ubuntu also work)
 #   ./setup.sh service    # start server.py on boot (systemd user service; run after "server")
+#   ./setup.sh service client --server <host>   # start main.py on boot on the Pi
+#                                               # (extra main.py flags go at the end)
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 ROLE="${1:-client}"
 case "$ROLE" in
   client|server|service) ;;
-  *) echo "usage: $0 [client|server|service]"; exit 1 ;;
+  *) echo "usage: $0 [client|server|service [server|client main.py-flags...]]"; exit 1 ;;
 esac
 
 check_imports() {
@@ -102,18 +104,34 @@ EOF
 # user services start at boot without anyone logging in.
 # ---------------------------------------------------------------------
 setup_service() {
+  WHAT="${1:-server}"; shift || true
   if [ ! -x venv/bin/python ]; then
-    echo "No venv yet. Run ./setup.sh server first."; exit 1
+    echo "No venv yet. Run ./setup.sh $WHAT first."; exit 1
   fi
-  UNIT=kestrel-server.service
+  case "$WHAT" in
+    server)
+      UNIT=kestrel-server.service
+      DESC="Kestrel detection server (MediaPipe on the GPU)"
+      CMD="server.py" ;;
+    client)
+      UNIT=kestrel-client.service
+      DESC="Kestrel camera app"
+      # Headless at boot: no desktop to draw a window on, so serve the MJPEG stream
+      CMD="main.py --source picam --headless --stream $*"
+      case " $* " in
+        *" --server "*) ;;
+        *) echo "WARNING: no --server given; detection runs on the Pi itself (not possible on a Pi 4)." ;;
+      esac ;;
+    *) echo "usage: $0 service [server|client main.py-flags...]"; exit 1 ;;
+  esac
   mkdir -p ~/.config/systemd/user
   cat > ~/.config/systemd/user/$UNIT <<EOF
 [Unit]
-Description=Kestrel detection server (MediaPipe on the GPU)
+Description=$DESC
 
 [Service]
 WorkingDirectory=$PWD
-ExecStart=$PWD/venv/bin/python server.py
+ExecStart=$PWD/venv/bin/python $CMD
 Restart=on-failure
 RestartSec=5
 
@@ -133,8 +151,8 @@ EOF
   systemctl --user --no-pager status $UNIT | head -5
   cat <<EOF
 
-Done. server.py now starts at boot.
-  journalctl --user -u $UNIT -f              # logs
+Done. ${CMD%% *} now starts at boot.
+  journalctl --user-unit $UNIT -f            # logs
   systemctl --user restart $UNIT             # after pulling new code
   systemctl --user disable --now $UNIT       # stop starting it on boot
 EOF
@@ -213,4 +231,5 @@ Done. Next:
 EOF
 }
 
-"setup_$ROLE"
+shift || true
+"setup_$ROLE" "$@"
