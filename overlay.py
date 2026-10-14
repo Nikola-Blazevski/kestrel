@@ -1,4 +1,4 @@
-"""Everything drawn on top of the video: hands, faces, HUD and the GY-271 panel."""
+"""Everything drawn on top of the video: people, HUD and the GY-271 panel."""
 
 import math
 
@@ -43,38 +43,19 @@ def _degree(img, x, y, color, scale=0.5):
 
 
 # ---------------------------------------------------------------------
-# Hands & faces
+# People
 # ---------------------------------------------------------------------
 
-def draw_hands(img, hands):
+def draw_people(img, people):
     h, w = img.shape[:2]
-    for hand in hands:
-        pts = [(int(x * w), int(y * h)) for x, y in hand.landmarks]
-        for a, b in config.HAND_CONNECTIONS:
-            cv.line(img, pts[a], pts[b], GREY, 1, cv.LINE_AA)
-        for p in pts:
-            cv.circle(img, p, 2, GREY, -1)
-        for name, tip, color, joints in config.FINGERS:
-            for a, b in zip(joints, joints[1:]):
-                cv.line(img, pts[a], pts[b], color, 3, cv.LINE_AA)
-            for j in joints:
-                cv.circle(img, pts[j], 4, color, -1)
-            tx, ty = pts[tip]
-            _text(img, name, (tx + 4, ty - 6), 0.45, color, bg=True)
-        xs, ys = zip(*pts)
-        x0, y0, x1, y1 = min(xs) - 15, min(ys) - 15, max(xs) + 15, max(ys) + 15
-        cv.rectangle(img, (x0, y0), (x1, y1), GREEN, 2)
-        _text(img, f"{hand.label} {hand.score:.0%}", (x0, max(14, y0 - 6)), 0.55, GREEN, bg=True)
-
-
-def draw_faces(img, faces):
-    h, w = img.shape[:2]
-    for f in faces:
-        x, y, bw, bh = f.box
+    for person in people:
+        x, y, bw, bh = person.box
         p0 = (int(x * w), int(y * h))
         p1 = (int((x + bw) * w), int((y + bh) * h))
         cv.rectangle(img, p0, p1, CYAN, 2)
-        _text(img, f"Face {f.score:.0%}", (p0[0], max(14, p0[1] - 6)), 0.5, CYAN, bg=True)
+        # Label above the box, or just inside it when the box touches the top edge
+        label_y = p0[1] - 6 if p0[1] >= 20 else p0[1] + 18
+        _text(img, f"Person {person.score:.0%}", (p0[0] + 2, label_y), 0.5, CYAN, bg=True)
 
 
 # ---------------------------------------------------------------------
@@ -89,9 +70,9 @@ def read_cpu_temp():
         return None
 
 
-def draw_hud(img, fps, detect_ms, n_hands, n_faces, cpu_temp, notes=()):
+def draw_hud(img, fps, detect_ms, n_people, cpu_temp, notes=()):
     lines = [(f"FPS {fps:4.1f}   det {detect_ms:4.0f} ms", WHITE),
-             (f"Hands {n_hands}   Faces {n_faces}", WHITE)]
+             (f"People {n_people}", WHITE)]
     if cpu_temp is not None:
         col = GREEN if cpu_temp < 70 else AMBER if cpu_temp < 80 else RED
         lines.append((f"CPU {cpu_temp:4.1f} C", col))

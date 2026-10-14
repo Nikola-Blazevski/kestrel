@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download the two MediaPipe models doc-cam-pi uses.
+# Download the MediaPipe person detection model doc-cam-pi uses.
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 mkdir -p models
@@ -11,6 +11,8 @@ fetch() {
   wget -q --show-progress -O "models/$2.part" "$BASE/$1" && mv "models/$2.part" "models/$2"
 }
 
-fetch hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task hand_landmarker.task
-fetch face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite blaze_face_short_range.tflite
+fetch object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite efficientdet_lite0_int8.tflite
+# More accurate for small or distant people, about 2.5x slower. To use it, uncomment
+# this and set PERSON_MODEL_PATH in config.py:
+# fetch object_detector/efficientdet_lite2/int8/1/efficientdet_lite2.tflite efficientdet_lite2_int8.tflite
 ls -lh models

@@ -2,7 +2,7 @@
 """
 Detection server: run this on a machine with a GPU and point the Pi at it with
 `python main.py --server <host>`. The Pi sends JPEG frames, and this sends back
-hand landmarks and face boxes.
+a box for each person in them.
 
     python server.py                    # listen on 0.0.0.0:8765, GPU delegate
     python server.py --port 9000 --cpu  # no GPU (for testing)
@@ -42,16 +42,11 @@ def serve_client(conn, addr, args):
         tune(conn)
         hello = recv_json(conn)
         # One detector per client: MediaPipe VIDEO mode tracks state per stream
-        detector = Detector(
-            hand_model=config.HAND_MODEL_PATH if hello.get("hands", True) else None,
-            face_model=config.FACE_MODEL_PATH if hello.get("faces", True) else None,
-            num_hands=int(hello.get("num_hands", config.NUM_HANDS)),
-            gpu=args.gpu_models)
-        send_json(conn, {"ok": True, "hands": detector.hands is not None,
-                         "faces": detector.faces is not None,
-                         "delegate": getattr(detector, "delegate", None),
-                         "status": detector.status})
-        print(f"[{name}] connected — {getattr(detector, 'delegate', None) or 'no detectors'}")
+        detector = Detector(config.PERSON_MODEL_PATH if hello.get("people", True) else None,
+                            gpu=args.gpu)
+        send_json(conn, {"ok": True, "people": detector.people is not None,
+                         "delegate": detector.delegate, "status": detector.status})
+        print(f"[{name}] connected — people on {detector.delegate or 'nothing'}")
         for s in detector.status:
             print(f"[{name}] {s}")
 
@@ -59,7 +54,7 @@ def serve_client(conn, addr, args):
             jpeg = recv_msg(conn)
             frame = cv.imdecode(np.frombuffer(jpeg, np.uint8), cv.IMREAD_COLOR)
             if frame is None:
-                send_json(conn, {"hands": [], "faces": [], "ms": 0.0, "error": "bad jpeg"})
+                send_json(conn, {"people": [], "ms": 0.0, "error": "bad jpeg"})
                 continue
             send_json(conn, detections_to_dict(detector.detect(frame)))
     except (ConnectionError, OSError) as e:
@@ -82,17 +77,16 @@ def main():
     faulthandler.register(signal.SIGUSR1)           # kill -USR1 <pid> dumps every thread's stack
     os.chdir(os.path.dirname(os.path.abspath(__file__)))    # model paths are relative
 
-    for path in (config.HAND_MODEL_PATH, config.FACE_MODEL_PATH):
-        if not os.path.exists(path):
-            print(f"Warning: {path} missing — run download_models.sh")
+    if not os.path.exists(config.PERSON_MODEL_PATH):
+        print(f"Warning: {config.PERSON_MODEL_PATH} missing — run download_models.sh")
 
-    args.gpu_models = set()
+    args.gpu = False
     if not args.cpu:
-        print("Testing which models run on the GPU...")
-        args.gpu_models, notes = probe_gpu(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+        print("Testing whether person detection runs on the GPU...")
+        args.gpu, notes = probe_gpu(config.PERSON_MODEL_PATH)
         for s in notes:
             print(f"  {s}")
-    print(f"GPU: {', '.join(sorted(args.gpu_models)) or 'none'}")
+    print(f"Person detection on {'GPU' if args.gpu else 'CPU'}")
 
     srv = socket.create_server((args.host, args.port), reuse_port=False)
     print(f"Detection server listening on {args.host}:{args.port}")

@@ -6,18 +6,17 @@ connecting, the client sends a JSON hello and the server answers with a JSON
 reply. From then on the client sends JPEG frames, and the server answers each
 one with a JSON detections message.
 
-    client -> {"hands": true, "faces": true, "num_hands": 2}
-    server <- {"ok": true, "hands": true, "faces": true, "delegate": "GPU", "status": [...]}
+    client -> {"people": true}
+    server <- {"ok": true, "people": true, "delegate": "GPU", "status": [...]}
     client -> <jpeg>
-    server <- {"hands": [{"landmarks": [[x, y], ...], "label": "Left", "score": 0.9}],
-               "faces": [{"box": [x, y, w, h], "score": 0.9}], "ms": 4.2}
+    server <- {"people": [{"box": [x, y, w, h], "score": 0.9}], "ms": 4.2}
 """
 
 import json
 import socket
 import struct
 
-from detectors import Detections, Face, Hand
+from detectors import Detections, Person
 
 DEFAULT_PORT = 8765
 MAX_MSG = 8 * 1024 * 1024        # far bigger than any frame we send; guards against junk
@@ -55,18 +54,14 @@ def recv_json(sock):
 
 
 def detections_to_dict(d):
-    return {"hands": [{"landmarks": [[round(x, 5), round(y, 5)] for x, y in h.landmarks],
-                       "label": h.label, "score": round(h.score, 3)} for h in d.hands],
-            "faces": [{"box": [round(v, 5) for v in f.box], "score": round(f.score, 3)}
-                      for f in d.faces],
+    return {"people": [{"box": [round(v, 5) for v in p.box], "score": round(p.score, 3)}
+                       for p in d.people],
             "ms": round(d.ms, 2)}
 
 
 def detections_from_dict(obj):
     return Detections(
-        hands=[Hand(landmarks=[tuple(p) for p in h["landmarks"]], label=h["label"],
-                    score=h["score"]) for h in obj.get("hands", [])],
-        faces=[Face(box=tuple(f["box"]), score=f["score"]) for f in obj.get("faces", [])],
+        people=[Person(box=tuple(p["box"]), score=p["score"]) for p in obj.get("people", [])],
         ms=obj.get("ms", 0.0))
 
 

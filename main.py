@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-doc-cam-pi — hand & face detection with a GY-271 magnetometer overlay,
+doc-cam-pi — person detection with a GY-271 magnetometer overlay,
 stripped down to run on a Raspberry Pi 4.
 
 Examples:
@@ -8,11 +8,11 @@ Examples:
     python main.py --source picam        # Pi camera module (CSI)
     python main.py --stream              # also serve http://<pi-ip>:8000
     python main.py --headless --stream   # no window, browser only (SSH / no desktop)
-    python main.py --no-hands --no-faces # magnetometer overlay only (lowest CPU)
+    python main.py --no-people           # magnetometer overlay only (lowest CPU)
     python main.py --mag-sim             # test overlay without the sensor wired
     python main.py --server 192.168.1.50 # run detection on a GPU machine (server.py)
 
-Keys (window mode): q / Esc quit, h toggle hands, f toggle faces, m toggle mag panel.
+Keys (window mode): q / Esc quit, p toggle people, m toggle mag panel.
 """
 
 import os
@@ -36,7 +36,7 @@ import config
 from camera import open_camera
 from detectors import Detector, Detections
 from magnetometer import Calibration, MagReader, SimulatedMag, detect_sensor
-from overlay import draw_faces, draw_hands, draw_hud, draw_mag, read_cpu_temp
+from overlay import draw_people, draw_hud, draw_mag, read_cpu_temp
 
 
 def parse_args():
@@ -47,11 +47,9 @@ def parse_args():
     p.add_argument("--fps", type=int, default=config.TARGET_FPS)
 
     g = p.add_argument_group("detection")
-    g.add_argument("--no-hands", action="store_true")
-    g.add_argument("--no-faces", action="store_true")
+    g.add_argument("--no-people", action="store_true")
     g.add_argument("--detect-width", type=int, default=config.DETECT_WIDTH)
     g.add_argument("--detect-every", type=int, default=config.DETECT_EVERY)
-    g.add_argument("--num-hands", type=int, default=config.NUM_HANDS)
     g.add_argument("--server", metavar="HOST[:PORT]",
                    help="send frames to server.py on a GPU machine instead of detecting locally")
 
@@ -106,16 +104,12 @@ def main():
     # --- Detection ---
     if args.server:
         from remote import RemoteDetector
-        detector = RemoteDetector(args.server, hands=not args.no_hands,
-                                  faces=not args.no_faces, num_hands=args.num_hands)
+        detector = RemoteDetector(args.server, people=not args.no_people)
     else:
-        detector = Detector(
-            hand_model=None if args.no_hands else config.HAND_MODEL_PATH,
-            face_model=None if args.no_faces else config.FACE_MODEL_PATH,
-            num_hands=args.num_hands)
+        detector = Detector(None if args.no_people else config.PERSON_MODEL_PATH)
     for s in detector.status:
         print(f"Detection: {s}")
-    want_hands, want_faces = detector.hands is not None, detector.faces is not None
+    want_people = detector.people is not None
 
     # --- Camera ---
     print(f"Opening camera '{args.source}' at {args.width}x{args.height}@{args.fps}...")
@@ -175,10 +169,8 @@ def main():
                     if dw < w else frame
                 dets = detector.detect(small)
 
-            if want_hands:
-                draw_hands(frame, dets.hands)
-            if want_faces:
-                draw_faces(frame, dets.faces)
+            if want_people:
+                draw_people(frame, dets.people)
 
             reading = mag.latest() if mag else None
             if show_mag and not args.no_mag:
@@ -194,21 +186,19 @@ def main():
             notes = [] if detector.enabled else ["detection off"]
             if getattr(detector, "error", None):
                 notes.append(detector.error)
-            draw_hud(frame, fps, dets.ms, len(dets.hands), len(dets.faces), cpu_temp, notes)
+            draw_hud(frame, fps, dets.ms, len(dets.people), cpu_temp, notes)
 
             if hub:
                 hub.publish(frame, {"fps": fps, "det_ms": dets.ms,
                                     "mag": reading.to_dict() if reading else None,
-                                    "hands": len(dets.hands), "faces": len(dets.faces)})
+                                    "people": len(dets.people)})
             if show_window:
                 cv.imshow(title, frame)
                 key = cv.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
-                elif key == ord("h") and detector.hands is not None:
-                    want_hands = not want_hands
-                elif key == ord("f") and detector.faces is not None:
-                    want_faces = not want_faces
+                elif key == ord("p") and detector.people is not None:
+                    want_people = not want_people
                 elif key == ord("m"):
                     show_mag = not show_mag
     except KeyboardInterrupt:

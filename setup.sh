@@ -60,24 +60,24 @@ setup_server() {
 
   echo "== Checks =="
   check_imports "cv2=numpy / opencv" mediapipe
-  # Same code path as server.py: shows which models get the GPU on this machine.
+  # Same code path as server.py: shows whether person detection gets the GPU here.
   # MediaPipe's native logging is noisy, so keep only our own lines.
   venv/bin/python - 2>/dev/null <<'EOF' | grep -E "^  " || echo "  FAIL  detector check crashed (run python server.py to see why)"
 import time
 import numpy as np
 import config
 from detectors import Detector, probe_gpu
-gpu, notes = probe_gpu(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+gpu, notes = probe_gpu(config.PERSON_MODEL_PATH)
 for s in notes:
     print(f"  NOTE  {s}")
-d = Detector(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH, gpu=gpu)
+d = Detector(config.PERSON_MODEL_PATH, gpu=gpu)
 if d.enabled:
     frame = np.zeros((360, 640, 3), np.uint8)
     d.detect(frame)
     t = time.perf_counter()
     for _ in range(20):
         d.detect(frame)
-    print(f"  OK    detection runs ({d.delegate}), "
+    print(f"  OK    person detection runs on {d.delegate}, "
           f"{(time.perf_counter() - t) / 20 * 1000:.1f} ms per 640x360 frame")
 else:
     print("  FAIL  detector did not load")
@@ -111,7 +111,7 @@ setup_service() {
   case "$WHAT" in
     server)
       UNIT=kestrel-server.service
-      DESC="Kestrel detection server (MediaPipe on the GPU)"
+      DESC="Kestrel person detection server"
       CMD="server.py" ;;
     client)
       UNIT=kestrel-client.service
@@ -213,7 +213,7 @@ setup_client() {
   venv/bin/python - 2>/dev/null <<'EOF' | grep -E "^  " || true
 import config
 from detectors import Detector
-d = Detector(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+d = Detector(config.PERSON_MODEL_PATH)
 print("  OK    local detection" if d.enabled else f"  NOTE  {'; '.join(d.status)}")
 EOF
   echo

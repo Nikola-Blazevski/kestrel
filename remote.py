@@ -22,14 +22,13 @@ STALE_AFTER = 1.0       # seconds before old results stop being drawn
 
 
 class RemoteDetector:
-    def __init__(self, addr, hands=True, faces=True, num_hands=2, quality=80, timeout=5.0):
+    def __init__(self, addr, people=True, quality=80, timeout=5.0):
         self.host, self.port = parse_addr(addr)
         self.quality = quality
         self.timeout = timeout
-        self._hello = {"hands": hands, "faces": faces, "num_hands": num_hands}
-        # main.py checks these to decide what can be toggled and drawn
-        self.hands = True if hands else None
-        self.faces = True if faces else None
+        self._hello = {"people": people}
+        # main.py checks this to decide what can be toggled and drawn
+        self.people = True if people else None
         self.status = [f"remote server {self.host}:{self.port}"]
         self.error = "connecting to server"
 
@@ -45,7 +44,7 @@ class RemoteDetector:
 
     @property
     def enabled(self):
-        return self.hands is not None or self.faces is not None
+        return self.people is not None
 
     def detect(self, frame_bgr):
         with self._cond:
@@ -97,7 +96,7 @@ class RemoteDetector:
         if not reply.get("ok"):
             raise ConnectionError(reply.get("error", "server refused"))
         self.error = None
-        print(f"Detection server connected: {reply.get('delegate') or 'no detectors'}")
+        print(f"Detection server connected: people on {reply.get('delegate') or 'nothing'}")
         for s in reply.get("status", []):
             print(f"Detection server: {s}")
 

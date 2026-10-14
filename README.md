@@ -1,6 +1,6 @@
 # doc-cam-pi
 
-A stripped-down version of [doc-cam](https://github.com/Nikola-Blazevski/doc-cam) for the Raspberry Pi 4. It keeps hand and finger tracking and face boxes, and adds a live overlay of the GY-271 magnetometer on the video feed.
+A stripped-down version of [doc-cam](https://github.com/Nikola-Blazevski/doc-cam) for the Raspberry Pi 4. It draws a box around each person in view and adds a live overlay of the GY-271 magnetometer on the video feed. It finds people but doesn't tell them apart: there are no identities or UUIDs.
 
 ## Changes from the desktop version
 
@@ -8,7 +8,7 @@ A stripped-down version of [doc-cam](https://github.com/Nikola-Blazevski/doc-cam
 |---|---|
 | Face identity / UUIDs (dlib + face_recognition) | Takes minutes to build on a Pi and runs at about 1 fps |
 | Face snapshots, `known_faces.pkl`, stats, dashboard UI | Only existed to serve face identity |
-| Pose landmarker | Too heavy alongside hands on a Pi 4 CPU |
+| Face detection, pose landmarker, hand and finger tracking | Replaced by whole-body person detection |
 | RGB skin / IR processing and the side-by-side "processed" view | Halves the work per frame |
 | CUDA / GPU paths | The Pi 4 has no CUDA, and MediaPipe's GPU delegate isn't usable there |
 
@@ -49,7 +49,7 @@ The setup script does the following:
 - enables I2C
 - creates a venv
 - installs MediaPipe and OpenCV
-- downloads the two models
+- downloads the person detection model
 - runs a quick import check and an `i2cdetect` scan
 
 The GY-271 should appear at **1e** (HMC5883L) or **0d** (QMC5883L).
@@ -70,18 +70,18 @@ To print raw readings in the terminal, run `python magnetometer.py`.
 python main.py --source picam              # Pi camera module
 python main.py --source 0                  # USB webcam
 python main.py --headless --stream         # no desktop: open http://<pi-ip>:8000
-python main.py --no-hands --no-faces       # magnetometer overlay only, lowest CPU
+python main.py --no-people                 # magnetometer overlay only, lowest CPU
 python main.py --mag-sim                   # test the overlay without the sensor
 python main.py --declination 15            # show true heading instead of magnetic
 ```
 
-Window keys: **q/Esc** quit, **h** toggles hands, **f** toggles faces, **m** toggles the magnetometer panel.
+Window keys: **q/Esc** quit, **p** toggles people, **m** toggles the magnetometer panel.
 
 `http://<pi-ip>:8000/data.json` returns the latest readings as JSON, if you want to log them from another machine.
 
 ## Offload detection to a GPU machine
 
-Hand and face detection can run on another computer instead of the Pi. The Pi still captures frames, reads the magnetometer and draws the overlay. It sends each frame to the server as a JPEG, and the server sends back hand landmarks and face boxes.
+Person detection can run on another computer instead of the Pi. The Pi still captures frames, reads the magnetometer and draws the overlay. It sends each frame to the server as a JPEG, and the server sends back a box for each person.
 
 On the GPU machine (Arch Linux; Debian/Ubuntu also work), clone this repo, then run:
 
@@ -108,7 +108,7 @@ python main.py --source picam --server 192.168.1.50              # default port 
 python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --detect-width 640
 ```
 
-- The server tries MediaPipe's GPU delegate for each model separately. This uses WebGPU/Vulkan or OpenGL ES, not CUDA, so the machine needs working Vulkan or GL drivers. At startup, the server tests each model on the GPU in a separate, short-lived process. Any model that fails there runs on CPU, and the server logs why. On an RTX 4060 laptop, hand landmarks run on the GPU (about 5 ms vs 17 ms on CPU). The face detector fails on the GPU and runs on CPU instead, which takes under 2 ms. Pass `--cpu` to skip the GPU attempt.
+- The server tries MediaPipe's GPU delegate first. This uses WebGPU/Vulkan or OpenGL ES, not CUDA, so the machine needs working Vulkan or GL drivers. At startup, the server tests the person detector on the GPU in a separate, short-lived process. If that fails, it runs on CPU and the server logs why. On an RTX 4060 laptop, the detector fails on the GPU, so it runs on CPU, which takes about 15 ms per frame. Pass `--cpu` to skip the GPU attempt.
 - Networking never blocks the camera loop. Frames that arrive while a request is in flight are dropped, so overlays may lag the video by one round trip.
 - In this mode, `det` in the HUD shows the full round-trip time, not just the GPU time.
 - If the server goes away, the HUD shows `server offline`, the boxes disappear after a second, and the Pi keeps reconnecting in the background.
@@ -120,9 +120,8 @@ python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --dete
 | Flag | Default | Notes |
 |---|---|---|
 | `--width/--height/--fps` | 640×480 @ 30 | |
-| `--detect-width` | 320 | Lower is faster but misses small or distant hands |
+| `--detect-width` | 320 | Lower is faster but misses small or distant people |
 | `--detect-every` | 2 | Run detection every N frames |
-| `--num-hands` | 2 | |
 | `--server HOST[:PORT]` | off | Run detection on `server.py` elsewhere (default port 8765) |
 | `--declination` | 0 | East positive. Look yours up at NOAA's magnetic field calculator |
 | `--mag-flip` | off | Use if the heading turns the wrong way (board upside down) |
@@ -141,7 +140,7 @@ python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --dete
 
 ## Performance notes (Pi 4)
 
-- Hand landmarks are the expensive part. If FPS is low, try `--detect-every 3`, `--num-hands 1`, `--no-faces`, or `--detect-width 256`.
+- With `--server`, the Pi only captures frames, draws the overlay and encodes JPEGs. If FPS is low, try `--detect-every 3` or `--detect-width 256` to send less per frame.
 - Fit a heatsink or fan. Sustained MediaPipe load will push a bare Pi 4 into throttling, and the HUD turns red at 80 °C.
 - Use `--headless --stream` when you can. Drawing a desktop window over VNC costs noticeable CPU.
 
