@@ -8,7 +8,11 @@ Results are returned in normalised [0, 1] coordinates so they can be drawn on
 the full-size frame even though detection ran on a downscaled copy.
 """
 
+import functools
 import os
+import signal
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -36,6 +40,33 @@ class Detections:
     ms: float = 0.0          # time spent detecting
 
 
+@functools.lru_cache(maxsize=None)
+def _native_crash(hand_model, face_model):
+    """MediaPipe's native code can kill the process outright on CPUs it wasn't
+    built for (MediaPipe 1.x needs the ARM AES instructions, which the Pi 4
+    lacks), and Python can't catch that. So load the models in a child process
+    first. Returns a reason string if the child crashed, else None."""
+    if os.environ.get("KESTREL_PROBE"):
+        return None
+    code = "import sys, detectors; detectors.Detector(sys.argv[1] or None, sys.argv[2] or None)"
+    try:
+        r = subprocess.run([sys.executable, "-c", code, hand_model or "", face_model or ""],
+                           cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env={**os.environ, "KESTREL_PROBE": "1"},
+                           capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return "loading MediaPipe models timed out"
+    if r.returncode >= 0:
+        return None
+    try:
+        sig = signal.Signals(-r.returncode).name
+    except ValueError:
+        sig = f"signal {-r.returncode}"
+    fatal = next((s for s in r.stderr.splitlines() if "FATAL" in s), "")
+    hint = " (CPU lacks AES instructions, e.g. Raspberry Pi 4)" if "aes" in fatal else ""
+    return f"MediaPipe crashes on this CPU with {sig}{hint}"
+
+
 class Detector:
     def __init__(self, hand_model=None, face_model=None, num_hands=2, gpu=False):
         """gpu: True to try the GPU for every model, or a set of model names
@@ -48,6 +79,11 @@ class Detector:
         self._last_ts = 0
 
         if not (hand_model or face_model):
+            return
+        models = [m if m and os.path.exists(m) else None for m in (hand_model, face_model)]
+        crash = any(models) and _native_crash(*models)
+        if crash:
+            self.status.append(f"{crash} — detection off, use --server <gpu-machine>")
             return
         try:
             import mediapipe as mp

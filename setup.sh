@@ -147,6 +147,13 @@ setup_client() {
   echo "== Checks =="
   check_imports "cv2=numpy / opencv" "mediapipe=mediapipe (not needed with --server)" \
     "picamera2=picamera2 (only needed for the CSI camera)" smbus2
+  # Importing MediaPipe can succeed on a CPU where loading its models then crashes (Pi 4)
+  venv/bin/python - 2>/dev/null <<'EOF' | grep -E "^  " || true
+import config
+from detectors import Detector
+d = Detector(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+print("  OK    local detection" if d.enabled else f"  NOTE  {'; '.join(d.status)}")
+EOF
   echo
   echo "I2C scan (GY-271 shows up as 1e = HMC5883L or 0d = QMC5883L):"
   sudo i2cdetect -y 1 || true
