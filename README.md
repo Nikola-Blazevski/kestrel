@@ -93,6 +93,14 @@ python server.py                 # listens on 0.0.0.0:8765
 
 `setup.sh server` installs the system packages it needs with pacman (or apt), creates a venv from `requirements-server.txt`, and downloads the models. It then runs a short detection test and reports which models use the GPU and how fast they run.
 
+To start the server on boot, run `./setup.sh service`. This installs `server.py` as a systemd user service and turns on lingering, so it starts at boot without anyone logging in. Useful commands:
+
+```bash
+journalctl --user -u kestrel-server -f          # logs
+systemctl --user restart kestrel-server         # after pulling new code
+systemctl --user disable --now kestrel-server   # stop starting it on boot
+```
+
 On the Pi, run `./setup.sh` (see [Setup](#setup)), then:
 
 ```bash

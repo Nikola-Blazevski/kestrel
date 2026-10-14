@@ -4,13 +4,14 @@
 #   ./setup.sh            # same as ./setup.sh client
 #   ./setup.sh client     # Raspberry Pi 4, 64-bit Raspberry Pi OS (Bookworm or newer)
 #   ./setup.sh server     # GPU detection server (Arch Linux; Debian/Ubuntu also work)
+#   ./setup.sh service    # start server.py on boot (systemd user service; run after "server")
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 ROLE="${1:-client}"
 case "$ROLE" in
-  client|server) ;;
-  *) echo "usage: $0 [client|server]"; exit 1 ;;
+  client|server|service) ;;
+  *) echo "usage: $0 [client|server|service]"; exit 1 ;;
 esac
 
 check_imports() {
@@ -93,6 +94,49 @@ On the Pi:
 
 If a firewall is running, allow TCP $PORT from the Pi, e.g.
   sudo ufw allow from <pi-ip> to any port $PORT proto tcp
+EOF
+}
+
+# ---------------------------------------------------------------------
+# Service: run server.py at boot as a systemd user service. Lingering lets
+# user services start at boot without anyone logging in.
+# ---------------------------------------------------------------------
+setup_service() {
+  if [ ! -x venv/bin/python ]; then
+    echo "No venv yet. Run ./setup.sh server first."; exit 1
+  fi
+  UNIT=kestrel-server.service
+  mkdir -p ~/.config/systemd/user
+  cat > ~/.config/systemd/user/$UNIT <<EOF
+[Unit]
+Description=Kestrel detection server (MediaPipe on the GPU)
+
+[Service]
+WorkingDirectory=$PWD
+ExecStart=$PWD/venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+  echo "== Wrote ~/.config/systemd/user/$UNIT"
+  systemctl --user daemon-reload
+  systemctl --user enable --now $UNIT
+
+  if [ "$(loginctl show-user "$USER" -p Linger --value)" != "yes" ]; then
+    echo "== Enabling lingering so it starts at boot without a login"
+    loginctl enable-linger "$USER" || sudo loginctl enable-linger "$USER"
+  fi
+
+  sleep 3
+  systemctl --user --no-pager status $UNIT | head -5
+  cat <<EOF
+
+Done. server.py now starts at boot.
+  journalctl --user -u $UNIT -f              # logs
+  systemctl --user restart $UNIT             # after pulling new code
+  systemctl --user disable --now $UNIT       # stop starting it on boot
 EOF
 }
 
