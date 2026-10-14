@@ -38,6 +38,10 @@ class Detections:
 
 class Detector:
     def __init__(self, hand_model=None, face_model=None, num_hands=2, gpu=False):
+        """gpu: True to try the GPU for every model, or a set of model names
+        ("hands", "faces") from probe_gpu(). In a long-running process, pass
+        the set: a model that fails on the GPU leaves an object behind whose
+        cleanup can deadlock MediaPipe later."""
         self.hands = None
         self.faces = None
         self.status = []
@@ -53,12 +57,12 @@ class Detector:
             self.status.append("mediapipe not installed — detection off")
             return
         self._mp = mp
-        delegates = {}
+        self.delegates = delegates = {}
 
         def create(name, task, options, model, **kw):
             # Try the GPU per model and fall back to CPU. Some models load on the
             # GPU but fail on the first inference, so run one before trusting it.
-            if gpu:
+            if gpu is True or (not isinstance(gpu, bool) and name in gpu):
                 t = None
                 try:
                     t = task.create_from_options(options(base_options=mpp.BaseOptions(
@@ -149,3 +153,31 @@ class Detector:
                     d.close()
                 except Exception:
                     pass
+
+
+def _probe_child(conn, hand_model, face_model):
+    d = Detector(hand_model, face_model, gpu=True)
+    conn.send(({k for k, v in d.delegates.items() if v == "GPU"}, d.status))
+    conn.close()
+    os._exit(0)     # skip teardown: destroying a GPU task that failed can hang
+
+
+def probe_gpu(hand_model, face_model, timeout=120):
+    """Find which models really run on the GPU, testing in a throwaway process
+    so a model that fails there can't leave anything behind in this one.
+    Returns (set of model names that work on the GPU, status messages)."""
+    import multiprocessing
+    ctx = multiprocessing.get_context("spawn")
+    recv_end, send_end = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_probe_child, args=(send_end, hand_model, face_model), daemon=True)
+    proc.start()
+    send_end.close()
+    try:
+        if not recv_end.poll(timeout):
+            return set(), [f"GPU test timed out after {timeout}s — using CPU"]
+        return recv_end.recv()
+    except EOFError:
+        return set(), ["GPU test crashed — using CPU"]
+    finally:
+        proc.kill()
+        proc.join()

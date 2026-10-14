@@ -100,7 +100,7 @@ python main.py --source picam --server 192.168.1.50              # default port 
 python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --detect-width 640
 ```
 
-- The server tries MediaPipe's GPU delegate for each model separately. This uses WebGPU/Vulkan or OpenGL ES, not CUDA, so the machine needs working Vulkan or GL drivers. Each model runs one test inference at startup. If that fails, the model falls back to CPU and the server logs why. On an RTX 4060 laptop, hand landmarks run on the GPU (about 5 ms vs 17 ms on CPU). The face detector fails on the GPU and runs on CPU instead, which takes under 2 ms. Pass `--cpu` to skip the GPU attempt.
+- The server tries MediaPipe's GPU delegate for each model separately. This uses WebGPU/Vulkan or OpenGL ES, not CUDA, so the machine needs working Vulkan or GL drivers. At startup, the server tests each model on the GPU in a separate, short-lived process. Any model that fails there runs on CPU, and the server logs why. On an RTX 4060 laptop, hand landmarks run on the GPU (about 5 ms vs 17 ms on CPU). The face detector fails on the GPU and runs on CPU instead, which takes under 2 ms. Pass `--cpu` to skip the GPU attempt.
 - Networking never blocks the camera loop. Frames that arrive while a request is in flight are dropped, so overlays may lag the video by one round trip.
 - In this mode, `det` in the HUD shows the full round-trip time, not just the GPU time.
 - If the server goes away, the HUD shows `server offline`, the boxes disappear after a second, and the Pi keeps reconnecting in the background.
@@ -141,6 +141,7 @@ python main.py --source picam --server 192.168.1.50:9000 --detect-every 1 --dete
 
 - **`MAG: no HMC5883L ... on the bus`**: check the wiring, then run `i2cdetect -y 1`. If nothing shows, I2C is disabled or SDA and SCL are swapped.
 - **Permission denied on `/dev/i2c-1`**: log out and back in (or reboot) after setup, so the `i2c` group membership applies.
+- **`No module named 'cv2'`**: setup didn't finish, so there is no `venv/`. Run `./setup.sh` again. `main.py` and `server.py` switch to `venv/` on their own, so you don't need to activate it first.
 - **`numpy.dtype size changed` when using `--source picam`**: the venv's numpy doesn't match the system one. Run `venv/bin/pip install "numpy<2" "opencv-contrib-python<4.12"` on Bookworm.
 - **Board shows a different address (e.g. 0x2C)**: some newer GY-271 boards use a QMC5883P, which this driver doesn't support yet.
 

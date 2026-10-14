@@ -11,19 +11,27 @@ The connection is not authenticated or encrypted. Only expose it on a network yo
 """
 
 import os
+import sys
+
+# Run under the project's venv even when it isn't activated (e.g. `python3 main.py`)
+_VENV_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "bin", "python")
+if sys.prefix == sys.base_prefix and os.path.exists(_VENV_PY):
+    os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
+
 os.environ.setdefault("GLOG_minloglevel", "2")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import argparse
+import faulthandler
+import signal
 import socket
-import sys
 import threading
 
 import cv2 as cv
 import numpy as np
 
 import config
-from detectors import Detector
+from detectors import Detector, probe_gpu
 from protocol import DEFAULT_PORT, detections_to_dict, recv_json, recv_msg, send_json, tune
 
 
@@ -38,7 +46,7 @@ def serve_client(conn, addr, args):
             hand_model=config.HAND_MODEL_PATH if hello.get("hands", True) else None,
             face_model=config.FACE_MODEL_PATH if hello.get("faces", True) else None,
             num_hands=int(hello.get("num_hands", config.NUM_HANDS)),
-            gpu=not args.cpu)
+            gpu=args.gpu_models)
         send_json(conn, {"ok": True, "hands": detector.hands is not None,
                          "faces": detector.faces is not None,
                          "delegate": getattr(detector, "delegate", None),
@@ -71,11 +79,20 @@ def main():
     p.add_argument("--cpu", action="store_true", help="don't try the GPU delegate")
     args = p.parse_args()
     sys.stdout.reconfigure(line_buffering=True)     # show logs promptly under systemd / in files
+    faulthandler.register(signal.SIGUSR1)           # kill -USR1 <pid> dumps every thread's stack
     os.chdir(os.path.dirname(os.path.abspath(__file__)))    # model paths are relative
 
     for path in (config.HAND_MODEL_PATH, config.FACE_MODEL_PATH):
         if not os.path.exists(path):
             print(f"Warning: {path} missing — run download_models.sh")
+
+    args.gpu_models = set()
+    if not args.cpu:
+        print("Testing which models run on the GPU...")
+        args.gpu_models, notes = probe_gpu(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+        for s in notes:
+            print(f"  {s}")
+    print(f"GPU: {', '.join(sorted(args.gpu_models)) or 'none'}")
 
     srv = socket.create_server((args.host, args.port), reuse_port=False)
     print(f"Detection server listening on {args.host}:{args.port}")

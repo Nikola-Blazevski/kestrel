@@ -63,10 +63,11 @@ setup_server() {
 import time
 import numpy as np
 import config
-from detectors import Detector
-d = Detector(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH, gpu=True)
-for s in d.status:
+from detectors import Detector, probe_gpu
+gpu, notes = probe_gpu(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH)
+for s in notes:
     print(f"  NOTE  {s}")
+d = Detector(config.HAND_MODEL_PATH, config.FACE_MODEL_PATH, gpu=gpu)
 if d.enabled:
     frame = np.zeros((360, 640, 3), np.uint8)
     d.detect(frame)

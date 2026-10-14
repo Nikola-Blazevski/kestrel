@@ -16,6 +16,13 @@ Keys (window mode): q / Esc quit, h toggle hands, f toggle faces, m toggle mag p
 """
 
 import os
+import sys
+
+# Run under the project's venv even when it isn't activated (e.g. `python3 main.py`)
+_VENV_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "bin", "python")
+if sys.prefix == sys.base_prefix and os.path.exists(_VENV_PY):
+    os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
+
 os.environ.setdefault("GLOG_minloglevel", "2")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
@@ -72,6 +79,7 @@ ROTATIONS = {90: cv.ROTATE_90_CLOCKWISE, 180: cv.ROTATE_180, 270: cv.ROTATE_90_C
 
 def main():
     args = parse_args()
+    sys.stdout.reconfigure(line_buffering=True)     # show logs promptly under systemd / in files
     here = os.path.dirname(os.path.abspath(__file__))
     os.chdir(here)       # model and calibration paths are relative to the project
 
@@ -189,7 +197,7 @@ def main():
             draw_hud(frame, fps, dets.ms, len(dets.hands), len(dets.faces), cpu_temp, notes)
 
             if hub:
-                hub.publish(frame, {"fps": fps,
+                hub.publish(frame, {"fps": fps, "det_ms": dets.ms,
                                     "mag": reading.to_dict() if reading else None,
                                     "hands": len(dets.hands), "faces": len(dets.faces)})
             if show_window:
